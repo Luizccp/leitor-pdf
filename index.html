@@ -1,85 +1,65 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Leitor Elegante & Biblioteca</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leitor de PDF Inteligente</title>
+  
+  <!-- Estilos da aplicação -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- SDK do Supabase (Essencial para Autenticação e Nuvem) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
-<body data-theme="paper">
+<body>
 
-  <!-- Barra Superior -->
-  <header class="top-bar">
-    <div class="top-bar-left">
-      <button type="button" id="btnShelfView" class="nav-btn active-tab">📚 Minha Estante</button>
-      <button type="button" id="btnReaderView" class="nav-btn">📖 Modo Leitura</button>
-      <label class="btn-upload">
-        + Adicionar Livro
-        <input type="file" id="pdfInput" accept="application/pdf" hidden>
-      </label>
-    </div>
+  <!-- Barra de Autenticação / Perfil no Topo -->
+  <header id="auth-container" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #1e293b; color: white;">
+    <div style="font-weight: bold; font-size: 16px;">📖 Leitor de PDF</div>
     
-    <div class="book-info-header">
-      <span class="book-title" id="bookTitle">Nenhum livro aberto</span>
-      <span id="pageIndicator" class="page-indicator" style="display: none;">Pág. 1 / 1</span>
-    </div>
-    
-    <div class="top-bar-right">
-      <!-- Seletor de Tema -->
-      <div class="theme-selector">
-        <button type="button" class="theme-btn theme-paper active" data-set-theme="paper" title="Modo Papel">📄</button>
-        <button type="button" class="theme-btn theme-sepia" data-set-theme="sepia" title="Modo Sépia">📜</button>
-        <button type="button" class="theme-btn theme-dark" data-set-theme="dark" title="Modo Noturno">🌙</button>
-      </div>
-
-      <!-- Ajuste de Tamanho da Letra -->
-      <div class="font-size-controls">
-        <button type="button" id="btnFontDec" class="font-btn" title="Diminuir fonte">A-</button>
-        <button type="button" id="btnFontInc" class="font-btn" title="Aumentar fonte">A+</button>
-      </div>
-
-      <select id="voiceSelect" class="voice-picker"></select>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span id="user-display" style="font-size: 14px; color: #94a3b8;">Não autenticado</span>
+      <button id="btn-login" style="padding: 6px 14px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">Entrar / Registar</button>
+      <button id="btn-logout" style="padding: 6px 14px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; display: none;">Sair</button>
     </div>
   </header>
 
-  <!-- Visão 1: Estante de Livros -->
-  <section id="shelfSection" class="shelf-area">
-    <div class="shelf-header">
-      <h2>Sua Biblioteca</h2>
-      <p>Selecione um exemplar para continuar a leitura ou adicione novos PDFs.</p>
+  <!-- Janela Modal de Registo e Login -->
+  <div id="auth-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 99999; justify-content: center; align-items: center;">
+    <div style="background: white; color: #1e293b; padding: 28px; border-radius: 10px; width: 340px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 14px;">
+      <h3 id="modal-title" style="margin: 0; font-size: 18px; text-align: center;">Entrar na Conta</h3>
+      
+      <input type="email" id="auth-email" placeholder="O seu e-mail" style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 14px;" />
+      <input type="password" id="auth-password" placeholder="A sua palavra-passe" style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; font-size: 14px;" />
+      
+      <button id="btn-submit-auth" style="padding: 10px; background: #2563eb; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Entrar</button>
+      
+      <button id="btn-toggle-auth-mode" style="background: none; border: none; color: #2563eb; cursor: pointer; font-size: 13px; text-decoration: underline;">Não tem conta? Criar registo</button>
+      <button id="btn-close-modal" style="background: none; border: none; color: #64748b; cursor: pointer; font-size: 12px;">Cancelar</button>
     </div>
-    <div id="booksGrid" class="books-grid">
-      <!-- Cards com Capa e Barra de Porcentagem -->
-    </div>
-  </section>
+  </div>
 
-  <!-- Visão 2: Área de Leitura Fluida por Página -->
-  <main id="readerSection" class="reading-area" style="display: none;">
-    <div class="reader-page-card">
-      <div id="textContainer" class="book-content">
-        <p class="placeholder-text">Selecione um livro na estante ou adicione um novo PDF acima.</p>
-      </div>
+  <!-- Estrutura Principal do Leitor -->
+  <main id="app-main" style="padding: 20px;">
+    <!-- Controlos de Upload e Leitura -->
+    <section id="controls" style="margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+      <input type="file" id="file-input" accept="application/pdf" />
+      <button id="prev-page" style="padding: 6px 12px; cursor: pointer;">Página Anterior</button>
+      <span>Página: <span id="page-num">1</span> / <span id="page-count">-</span></span>
+      <button id="next-page" style="padding: 6px 12px; cursor: pointer;">Próxima Página</button>
+      
+      <button id="play-pause-btn" style="padding: 6px 14px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">Ouvir Áudio</button>
+    </section>
 
-      <!-- Navegação de Páginas -->
-      <div id="pageNavControls" class="page-nav-controls" style="display: none;">
-        <button type="button" id="btnPrevPage" class="page-nav-btn">← Página Anterior</button>
-        <span id="pageFooterIndicator" class="page-footer-indicator">Página 1 de 1</span>
-        <button type="button" id="btnNextPage" class="page-nav-btn">Próxima Página →</button>
-      </div>
-    </div>
+    <!-- Visualizador do PDF e Texto -->
+    <section id="viewer-container" style="position: relative; min-height: 500px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: auto; padding: 10px;">
+      <canvas id="pdf-render"></canvas>
+      <div id="text-layer"></div>
+    </section>
   </main>
 
-  <!-- Barra Flutuante de Áudio (Modo Leitor) -->
-  <footer id="playerBar" class="player-bar" style="display: none;">
-    <div class="player-controls">
-      <button type="button" id="prevBtn" class="control-btn" title="Frase anterior">⏮</button>
-      <button type="button" id="playPauseBtn" class="control-btn play-btn" title="Reproduzir/Pausar">▶</button>
-      <button type="button" id="nextBtn" class="control-btn" title="Próxima frase">⏭</button>
-      <button type="button" id="speedBtn" class="control-btn speed-btn">1.0x</button>
-    </div>
-  </footer>
-
+  <!-- Scripts do PDF.js e Lógica da Aplicação -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
