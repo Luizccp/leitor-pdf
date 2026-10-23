@@ -462,7 +462,7 @@ async function playSentence(index) {
   const rateParam = `${ratePercent >= 0 ? '+' : ''}${ratePercent}%`;
 
   try {
-    const res = await fetch("http://127.0.0.1:8000/synthesize", {
+    const res = await fetch("https://leitor-pdf-64aw.onrender.com/synthesize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
