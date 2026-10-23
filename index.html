@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leitor Elegante & Biblioteca</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+</head>
+<body data-theme="paper">
+
+  <!-- Barra Superior -->
+  <header class="top-bar">
+    <div class="top-bar-left">
+      <button type="button" id="btnShelfView" class="nav-btn active-tab">📚 Minha Estante</button>
+      <button type="button" id="btnReaderView" class="nav-btn">📖 Modo Leitura</button>
+      <label class="btn-upload">
+        + Adicionar Livro
+        <input type="file" id="pdfInput" accept="application/pdf" hidden>
+      </label>
+    </div>
+    
+    <div class="book-info-header">
+      <span class="book-title" id="bookTitle">Nenhum livro aberto</span>
+      <span id="pageIndicator" class="page-indicator" style="display: none;">Pág. 1 / 1</span>
+    </div>
+    
+    <div class="top-bar-right">
+      <!-- Seletor de Tema -->
+      <div class="theme-selector">
+        <button type="button" class="theme-btn theme-paper active" data-set-theme="paper" title="Modo Papel">📄</button>
+        <button type="button" class="theme-btn theme-sepia" data-set-theme="sepia" title="Modo Sépia">📜</button>
+        <button type="button" class="theme-btn theme-dark" data-set-theme="dark" title="Modo Noturno">🌙</button>
+      </div>
+
+      <!-- Ajuste de Tamanho da Letra -->
+      <div class="font-size-controls">
+        <button type="button" id="btnFontDec" class="font-btn" title="Diminuir fonte">A-</button>
+        <button type="button" id="btnFontInc" class="font-btn" title="Aumentar fonte">A+</button>
+      </div>
+
+      <select id="voiceSelect" class="voice-picker"></select>
+    </div>
+  </header>
+
+  <!-- Visão 1: Estante de Livros -->
+  <section id="shelfSection" class="shelf-area">
+    <div class="shelf-header">
+      <h2>Sua Biblioteca</h2>
+      <p>Selecione um exemplar para continuar a leitura ou adicione novos PDFs.</p>
+    </div>
+    <div id="booksGrid" class="books-grid">
+      <!-- Cards com Capa e Barra de Porcentagem -->
+    </div>
+  </section>
+
+  <!-- Visão 2: Área de Leitura Fluida por Página -->
+  <main id="readerSection" class="reading-area" style="display: none;">
+    <div class="reader-page-card">
+      <div id="textContainer" class="book-content">
+        <p class="placeholder-text">Selecione um livro na estante ou adicione um novo PDF acima.</p>
+      </div>
+
+      <!-- Navegação de Páginas -->
+      <div id="pageNavControls" class="page-nav-controls" style="display: none;">
+        <button type="button" id="btnPrevPage" class="page-nav-btn">← Página Anterior</button>
+        <span id="pageFooterIndicator" class="page-footer-indicator">Página 1 de 1</span>
+        <button type="button" id="btnNextPage" class="page-nav-btn">Próxima Página →</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Barra Flutuante de Áudio (Modo Leitor) -->
+  <footer id="playerBar" class="player-bar" style="display: none;">
+    <div class="player-controls">
+      <button type="button" id="prevBtn" class="control-btn" title="Frase anterior">⏮</button>
+      <button type="button" id="playPauseBtn" class="control-btn play-btn" title="Reproduzir/Pausar">▶</button>
+      <button type="button" id="nextBtn" class="control-btn" title="Próxima frase">⏭</button>
+      <button type="button" id="speedBtn" class="control-btn speed-btn">1.0x</button>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
