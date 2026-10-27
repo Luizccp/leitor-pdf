@@ -2,21 +2,25 @@ import os
 import uuid
 import tempfile
 import edge_tts
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 app = FastAPI()
 
-# Permite chamadas do frontend hospedado em qualquer domínio
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Middleware global que resolve em definitivo os pedidos do Edge (CORS e Private Network)
+@app.middleware("http")
+async def add_cors_and_private_network_headers(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = Response(status_code=200)
+    else:
+        response = await call_next(request)
+
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 # Diretório temporário seguro para ficheiros de áudio
 AUDIO_DIR = os.path.join(tempfile.gettempdir(), "leitor_pdf_audio")
@@ -39,7 +43,6 @@ async def synthesize(req: TTSRequest, request: Request):
         communicate = edge_tts.Communicate(req.text, req.voice, rate=req.rate)
         await communicate.save(filepath)
 
-        # Constrói o URL dinamicamente (seja em localhost ou no domínio da nuvem)
         base_url = str(request.base_url).rstrip('/')
         return {"audio_url": f"{base_url}/audio/{filename}"}
     except Exception as e:
@@ -55,6 +58,5 @@ async def get_audio(filename: str):
 
 if __name__ == "__main__":
     import uvicorn
-    # Lê a porta atribuída pela nuvem ou usa a 8000 por defeito localmente
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
