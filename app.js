@@ -315,6 +315,171 @@ async function openBook(book) {
   }
 }
 
+// ---- Reconstrução do texto da página ----
+// Junta letras espaçadas ("S U N T Z U" -> "SUNTZU"), ignora números de página
+// nas margens e reúne palavras hifenizadas no fim da linha.
+
+// Agrupa os itens do pdf.js em linhas (o pdf.js marca o fim de linha com um item vazio)
+function groupIntoLines(items) {
+  const lines = [];
+  let cur = [];
+  let curY = null;
+  for (const it of items) {
+    if (it.hasEOL && !it.str) {
+      if (cur.length) lines.push(cur);
+      cur = [];
+      curY = null;
+      continue;
+    }
+    if (!it.str) continue;
+    const y = it.transform[5];
+    const size = Math.abs(it.transform[3]) || it.height || 10;
+    if (cur.length && Math.abs(y - curY) > size * 0.5) {
+      lines.push(cur); // mudou de linha mesmo sem marcador
+      cur = [];
+    }
+    if (!cur.length) curY = y;
+    cur.push(it);
+    if (it.hasEOL) {
+      lines.push(cur);
+      cur = [];
+      curY = null;
+    }
+  }
+  if (cur.length) lines.push(cur);
+  return lines;
+}
+
+// Transforma uma linha em palavras ("tokens") e lacunas entre elas, guardando a largura de cada lacuna
+function lineToTokens(items) {
+  const tokens = [];   // { text }
+  const gaps = [];     // gaps[i] fica entre tokens[i] e tokens[i+1]: { width: número|null, n }
+  let pendingGap = null;
+  let prev = null;
+
+  const addText = (text) => {
+    if (tokens.length === 0) {
+      tokens.push({ text });
+    } else if (pendingGap) {
+      gaps.push(pendingGap);
+      tokens.push({ text });
+    } else {
+      tokens[tokens.length - 1].text += text; // sem espaço entre eles: mesma palavra
+    }
+    pendingGap = null;
+  };
+
+  const addGap = (width, n) => {
+    if (tokens.length === 0) return; // ignora espaço no começo da linha
+    if (!pendingGap) {
+      pendingGap = { width, n };
+    } else {
+      pendingGap.width = (pendingGap.width == null && width == null)
+        ? null
+        : (pendingGap.width || 0) + (width || 0);
+      pendingGap.n += n;
+    }
+  };
+
+  for (const it of items) {
+    const size = Math.abs(it.transform[3]) || it.height || 10;
+
+    if (/^\s+$/.test(it.str)) {
+      addGap(it.width > 0 ? it.width : null, it.str.length);
+      prev = it;
+      continue;
+    }
+
+    // lacuna entre itens vizinhos que não têm um item de espaço no meio
+    if (prev && !pendingGap && tokens.length) {
+      const gapX = it.transform[4] - (prev.transform[4] + prev.width);
+      if (gapX > size * 0.15) addGap(gapX, 1);
+    }
+
+    for (const part of it.str.match(/\s+|\S+/g)) {
+      if (/^\s/.test(part)) addGap(null, part.length); // espaço dentro do item
+      else addText(part);
+    }
+    prev = it;
+  }
+  return { tokens, gaps };
+}
+
+// Letras espaçadas: os espaços "estreitos" são entre letras e os "largos" são entre palavras
+function joinLetterSpaced(run, gaps) {
+  const known = gaps.map(g => g.width).filter(w => w != null && w > 0);
+  const hasInternal = gaps.some(g => g.width == null);
+  let threshold = Infinity;
+  if (known.length) {
+    const min = Math.min(...known);
+    const max = Math.max(...known);
+    if (max >= min * 1.8) threshold = min * 1.8;  // dois tamanhos: o maior separa palavras
+    else if (hasInternal) threshold = 0;          // espaços soltos separam palavras; os de dentro do item, letras
+  }
+  let text = run[0].text;
+  for (let k = 1; k < run.length; k++) {
+    const g = gaps[k - 1];
+    const isWordGap = g.width != null ? g.width >= threshold : g.n >= 2;
+    text += (isWordGap ? ' ' : '') + run[k].text;
+  }
+  return text;
+}
+
+function joinTokens(tokens, gaps) {
+  const isSingle = (t) => Array.from(t.text).length === 1;
+  const isAlnum = (t) => /^[\p{L}\p{N}]$/u.test(t.text);
+  const out = [];
+  let i = 0;
+  while (i < tokens.length) {
+    if (isSingle(tokens[i])) {
+      let j = i;
+      while (j + 1 < tokens.length && isSingle(tokens[j + 1])) j++;
+      const count = j - i + 1;
+      const alnum = tokens.slice(i, j + 1).filter(isAlnum).length;
+      if (count >= 4 && alnum >= 3) {
+        out.push(joinLetterSpaced(tokens.slice(i, j + 1), gaps.slice(i, j)));
+        i = j + 1;
+        continue;
+      }
+    }
+    out.push(tokens[i].text);
+    i++;
+  }
+  return out.join(' ');
+}
+
+function buildPageText(content, view) {
+  const y0 = view ? view[1] : 0;
+  const height = view ? (view[3] - view[1]) : 0;
+  const lines = [];
+
+  for (const items of groupIntoLines(content.items)) {
+    const { tokens, gaps } = lineToTokens(items);
+    if (!tokens.length) continue;
+
+    const text = joinTokens(tokens, gaps).trim();
+    if (!/[\p{L}\p{N}]/u.test(text)) continue; // linhas só de símbolos ("· · ·")
+
+    // número de página solto no topo ou no rodapé
+    if (height > 0) {
+      const rel = (items[0].transform[5] - y0) / height;
+      const compact = text.replace(/\s+/g, '');
+      if ((rel < 0.08 || rel > 0.92) && compact.length <= 6 &&
+          (/^\d+$/.test(compact) || /^[ivxlcdm]+$/i.test(compact))) continue;
+    }
+    lines.push(text);
+  }
+
+  // junta as linhas; palavra hifenizada no fim da linha volta a ser uma só
+  let result = '';
+  for (const line of lines) {
+    if (!result) result = line;
+    else if (/\p{L}-$/u.test(result) && /^\p{Ll}/u.test(line)) result = result.slice(0, -1) + line;
+    else result += ' ' + line;
+  }
+  return result;
+}
+
 // 10. Carregar Página com Suporte a Reprodução Contínua
 async function loadPage(pageNum, startSentenceIndex = 0, autoPlay = false) {
   if (!currentLoadedPdf) return;
@@ -347,7 +512,7 @@ async function loadPage(pageNum, startSentenceIndex = 0, autoPlay = false) {
   try {
     const page = await currentLoadedPdf.getPage(pageNum);
     const content = await page.getTextContent();
-    const pageStrings = content.items.map(item => item.str).join(' ');
+    const pageStrings = buildPageText(content, page.view);
     renderReaderMode(pageStrings, startSentenceIndex);
 
     // Se estava tocando antes, dispara a primeira frase da nova página imediatamente
@@ -494,22 +659,33 @@ let resumable = false;          // true quando o áudio foi pausado no meio e po
 // A voz neural soletra palavras em CAIXA ALTA (acha que são siglas).
 // Antes de enviar ao servidor, passamos para minúsculas só para a fala; o texto na tela não muda.
 // Siglas que devem continuar sendo soletradas: acrescente aqui (em maiúsculas).
-const SPELLED_ACRONYMS = new Set(['IBGE', 'CNPJ', 'INSS', 'FGTS', 'HTML', 'HTTP', 'HTTPS']);
+const SPELLED_ACRONYMS = new Set([
+  'IBGE', 'CNPJ', 'INSS', 'FGTS', 'HTML', 'HTTP', 'HTTPS', 'CPF', 'RG', 'CNH', 'USP',
+  'UFRJ', 'UFMG', 'ONU', 'FBI', 'CIA', 'KGB', 'PDF', 'USB', 'SUS', 'CLT', 'OAB', 'STF',
+  'STJ', 'TSE', 'PIB', 'IPCA', 'CEP', 'DNA', 'RNA', 'PIX', 'TV', 'CD', 'DVD', 'EUA', 'URSS'
+]);
 
 function normalizeForSpeech(text) {
+  const keep = (w) => SPELLED_ACRONYMS.has(w) || /^[IVXLCDM]+$/.test(w); // siglas e números romanos
+  const lower = (w) => (keep(w) ? w : w.toLowerCase());
   const letters = text.replace(/[^\p{L}]/gu, '');
-  // Frase inteira em maiúsculas (títulos): converte todas as palavras.
-  // Caso contrário: só palavras com 4+ letras (siglas curtas, como CPF, continuam soletradas).
-  const allCaps = letters.length > 3 && letters === letters.toUpperCase();
-  const pattern = allCaps
-    ? /(?<![\p{L}\p{N}])\p{Lu}+(?![\p{L}\p{N}])/gu
-    : /(?<![\p{L}\p{N}])\p{Lu}{4,}(?![\p{L}\p{N}])/gu;
 
-  return text.replace(pattern, (word) => {
-    if (SPELLED_ACRONYMS.has(word)) return word;
-    if (/^[IVXLCDM]+$/.test(word)) return word; // números romanos (XVIII)
-    return word.toLowerCase();
-  });
+  // Frase inteira em maiúsculas (títulos): converte todas as palavras
+  if (letters.length > 3 && letters === letters.toUpperCase()) {
+    return text.replace(/(?<![\p{L}\p{N}])\p{Lu}+(?![\p{L}\p{N}])/gu, lower);
+  }
+
+  // Sequências como "SUN TZU" ou "TRADUÇÃO, INTRODUÇÃO E NOTAS": nomes e títulos, não siglas
+  text = text.replace(
+    /(?<![\p{L}\p{N}])\p{Lu}{2,}(?:[\s,]+(?:\p{Lu}{2,}|[AEO]))+(?![\p{L}\p{N}])/gu,
+    (seq) => {
+      const multi = seq.split(/[\s,]+/).filter(w => w.length >= 2).length;
+      return multi >= 2 ? seq.replace(/\p{Lu}+/gu, lower) : seq;
+    }
+  );
+
+  // Palavras isoladas com 4+ letras (siglas curtas, como CPF, continuam soletradas)
+  return text.replace(/(?<![\p{L}\p{N}])\p{Lu}{4,}(?![\p{L}\p{N}])/gu, lower);
 }
 
 function requestAudioUrl(text) {
