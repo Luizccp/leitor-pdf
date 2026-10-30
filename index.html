@@ -4,53 +4,66 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Leitor Elegante & Biblioteca</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 </head>
-<body data-theme="paper">
+<body data-theme="paper" data-view="shelf">
 
   <!-- Barra Superior -->
   <header class="top-bar">
-    <div class="top-bar-left">
-      <button type="button" id="btnShelfView" class="nav-btn active-tab">📚 Minha Estante</button>
-      <button type="button" id="btnReaderView" class="nav-btn">📖 Modo Leitura</button>
-      <label class="btn-upload">
-        + Adicionar Livro
-        <input type="file" id="pdfInput" accept="application/pdf" hidden>
-      </label>
-    </div>
-    
+    <nav class="top-bar-left" aria-label="Seções">
+      <button type="button" id="btnShelfView" class="nav-btn active-tab">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="4" height="13" rx="0.8"/><rect x="9.5" y="4" width="4" height="15" rx="0.8"/><path d="M15.4 7.4l3.5-.9 2.5 11.9-3.5.9z"/><path d="M3 21.5h18"/></svg>
+        <span>Estante</span>
+      </button>
+      <button type="button" id="btnReaderView" class="nav-btn">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10.5 5.2 8.2 4.5 5 4.5v13c3.2 0 5.5.7 7 2 1.5-1.3 3.8-2 7-2v-13c-3.2 0-5.5.7-7 2z"/><path d="M12 6.5v13"/></svg>
+        <span>Leitura</span>
+      </button>
+    </nav>
+
     <div class="book-info-header">
       <span class="book-title" id="bookTitle">Nenhum livro aberto</span>
       <span id="pageIndicator" class="page-indicator" style="display: none;">Pág. 1 / 1</span>
     </div>
-    
+
     <div class="top-bar-right">
       <!-- Seletor de Tema -->
-      <div class="theme-selector">
-        <button type="button" class="theme-btn theme-paper active" data-set-theme="paper" title="Modo Papel">📄</button>
-        <button type="button" class="theme-btn theme-sepia" data-set-theme="sepia" title="Modo Sépia">📜</button>
-        <button type="button" class="theme-btn theme-dark" data-set-theme="dark" title="Modo Noturno">🌙</button>
+      <div class="theme-selector" role="group" aria-label="Tema">
+        <button type="button" class="theme-btn theme-paper active" data-set-theme="paper" title="Claro" aria-label="Tema claro"></button>
+        <button type="button" class="theme-btn theme-sepia" data-set-theme="sepia" title="Sépia" aria-label="Tema sépia"></button>
+        <button type="button" class="theme-btn theme-dark" data-set-theme="dark" title="Noturno" aria-label="Tema noturno"></button>
       </div>
 
       <!-- Ajuste de Tamanho da Letra -->
-      <div class="font-size-controls">
-        <button type="button" id="btnFontDec" class="font-btn" title="Diminuir fonte">A-</button>
-        <button type="button" id="btnFontInc" class="font-btn" title="Aumentar fonte">A+</button>
+      <div class="font-size-controls reader-only">
+        <button type="button" id="btnFontDec" class="font-btn" title="Diminuir fonte" aria-label="Diminuir fonte"><span class="font-a-small">A</span></button>
+        <button type="button" id="btnFontInc" class="font-btn" title="Aumentar fonte" aria-label="Aumentar fonte"><span class="font-a-big">A</span></button>
       </div>
 
-      <select id="voiceSelect" class="voice-picker"></select>
+      <select id="voiceSelect" class="voice-picker reader-only" aria-label="Voz"></select>
+
+      <label class="btn-upload">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Adicionar PDF</span>
+        <input type="file" id="pdfInput" accept="application/pdf" hidden>
+      </label>
     </div>
   </header>
 
   <!-- Visão 1: Estante de Livros -->
   <section id="shelfSection" class="shelf-area">
     <div class="shelf-header">
-      <h2>Sua Biblioteca</h2>
-      <p>Selecione um exemplar para continuar a leitura ou adicione novos PDFs.</p>
+      <h2>Sua biblioteca</h2>
+      <p>Toque em um livro para abrir.</p>
     </div>
-    <div id="booksGrid" class="books-grid">
-      <!-- Cards com Capa e Barra de Porcentagem -->
+    <div class="bookcase">
+      <div id="booksGrid" class="books-grid">
+        <!-- Livros em pé nas prateleiras, com plaquinha de título e progresso -->
+      </div>
     </div>
   </section>
 
@@ -63,9 +76,15 @@
 
       <!-- Navegação de Páginas -->
       <div id="pageNavControls" class="page-nav-controls" style="display: none;">
-        <button type="button" id="btnPrevPage" class="page-nav-btn">← Página Anterior</button>
+        <button type="button" id="btnPrevPage" class="page-nav-btn">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg>
+          <span>Anterior</span>
+        </button>
         <span id="pageFooterIndicator" class="page-footer-indicator">Página 1 de 1</span>
-        <button type="button" id="btnNextPage" class="page-nav-btn">Próxima Página →</button>
+        <button type="button" id="btnNextPage" class="page-nav-btn">
+          <span>Próxima</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>
+        </button>
       </div>
     </div>
   </main>
@@ -73,10 +92,16 @@
   <!-- Barra Flutuante de Áudio (Modo Leitor) -->
   <footer id="playerBar" class="player-bar" style="display: none;">
     <div class="player-controls">
-      <button type="button" id="prevBtn" class="control-btn" title="Frase anterior">⏮</button>
-      <button type="button" id="playPauseBtn" class="control-btn play-btn" title="Reproduzir/Pausar">▶</button>
-      <button type="button" id="nextBtn" class="control-btn" title="Próxima frase">⏭</button>
-      <button type="button" id="speedBtn" class="control-btn speed-btn">1.0x</button>
+      <button type="button" id="prevBtn" class="control-btn" title="Frase anterior" aria-label="Frase anterior">
+        <svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 5v14" class="stroke-only"/><path d="M19 5.8v12.4L9.5 12z"/></svg>
+      </button>
+      <button type="button" id="playPauseBtn" class="control-btn play-btn" title="Reproduzir/Pausar" aria-label="Reproduzir ou pausar">
+        <svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+      </button>
+      <button type="button" id="nextBtn" class="control-btn" title="Próxima frase" aria-label="Próxima frase">
+        <svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 5v14" class="stroke-only"/><path d="M5 5.8v12.4L14.5 12z"/></svg>
+      </button>
+      <button type="button" id="speedBtn" class="control-btn speed-btn" title="Velocidade">1.0x</button>
     </div>
   </footer>
 

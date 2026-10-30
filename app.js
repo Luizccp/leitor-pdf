@@ -38,6 +38,22 @@ const btnFontInc = document.getElementById('btnFontInc');
 const btnFontDec = document.getElementById('btnFontDec');
 const themeButtons = document.querySelectorAll('[data-set-theme]');
 
+// Ícones usados na interface (SVG, herdam a cor do texto)
+const ICON_PLAY  = '<svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+const ICON_PAUSE = '<svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg>';
+const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9.5 7V5h5v2M7 7l.9 12h8.2L17 7"/></svg>';
+const ICON_PLUS  = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
+function setPlayIcon(playing) {
+  playPauseBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 // 1. Inicializar Banco Local (IndexedDB)
 function initDB() {
   const request = indexedDB.open("BibliotecaDB", 3);
@@ -106,15 +122,16 @@ function applyTheme(theme) {
 // 3. Configurar Opções de Vozes Neurais
 function setupVoices() {
   voiceSelect.innerHTML = `
-    <option value="pt-BR-FranciscaNeural" selected>Francisca Neural (pt-BR - Feminina)</option>
-    <option value="pt-BR-AntonioNeural">Antonio Neural (pt-BR - Masculino)</option>
-    <option value="pt-BR-ThalitaNeural">Thalita Neural (pt-BR - Feminina)</option>
+    <option value="pt-BR-FranciscaNeural" selected>Francisca</option>
+    <option value="pt-BR-AntonioNeural">Antonio</option>
+    <option value="pt-BR-ThalitaNeural">Thalita</option>
   `;
 }
 setupVoices();
 
 // 4. Alternância de Telas
 function showShelfView() {
+  document.body.dataset.view = 'shelf';
   shelfSection.style.display = 'block';
   readerSection.style.display = 'none';
   playerBar.style.display = 'none';
@@ -126,6 +143,7 @@ function showShelfView() {
 }
 
 function showReaderView() {
+  document.body.dataset.view = 'reader';
   shelfSection.style.display = 'none';
   readerSection.style.display = 'flex';
   playerBar.style.display = 'flex';
@@ -145,6 +163,68 @@ btnReaderView.addEventListener('click', (e) => {
 });
 
 // 5. Carregar Livros da Estante com Capa e Progresso
+// Cor da capa gerada (quando o PDF não tem imagem de capa), sempre a mesma para o mesmo título
+function coverHue(title) {
+  const hues = [152, 22, 205, 350, 38, 270];
+  let h = 0;
+  for (const ch of String(title)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return hues[h % hues.length];
+}
+
+function createShelfSlot(book) {
+  const slot = document.createElement('div');
+  slot.className = 'shelf-slot';
+
+  const currentPage = book.currentPage || 1;
+  const totalPages = book.totalPages || 1;
+  const percent = Math.min(100, Math.round((currentPage / totalPages) * 100));
+  const isNew = currentPage <= 1 && !book.currentSentence;
+  const title = escapeHtml(book.title);
+
+  const coverHtml = book.cover
+    ? `<img src="${book.cover}" class="book-cover" alt="" draggable="false">`
+    : `<div class="book-cover-generated" style="--hue:${coverHue(book.title)}">${title}</div>`;
+
+  slot.innerHTML = `
+    <div class="book">
+      <button type="button" class="book-open" aria-label="Abrir ${title}, ${isNew ? 'ainda não lido' : percent + '% lido'}">${coverHtml}</button>
+      <button type="button" class="book-delete" title="Remover da estante" aria-label="Remover ${title} da estante">${ICON_TRASH}</button>
+    </div>
+    <div class="shelf-plate" title="${title}">
+      <span class="plate-title">${title}</span>
+      <span class="plate-progress">
+        <span class="plate-bar"><i style="width:${isNew ? 0 : percent}%"></i></span>
+        <b>${isNew ? 'Novo' : percent + '%'}</b>
+      </span>
+    </div>
+  `;
+
+  slot.addEventListener('click', (e) => {
+    if (e.target.closest('.book-delete')) return;
+    openBook(book);
+  });
+
+  slot.querySelector('.book-delete').addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteBook(book.id);
+  });
+
+  return slot;
+}
+
+// Espaço pontilhado no fim da estante: convite para adicionar outro PDF
+function createAddSlot() {
+  const slot = document.createElement('div');
+  slot.className = 'shelf-slot slot-add';
+  slot.innerHTML = `
+    <div class="book">
+      <button type="button" class="book-ghost" aria-label="Adicionar PDF">${ICON_PLUS}<span>Adicionar PDF</span></button>
+    </div>
+  `;
+  slot.querySelector('.book-ghost').addEventListener('click', () => pdfInput.click());
+  return slot;
+}
+
 function loadShelf() {
   if (!db) return;
   const transaction = db.transaction(["books"], "readonly");
@@ -155,60 +235,15 @@ function loadShelf() {
     const books = request.result;
     booksGrid.innerHTML = '';
 
+    books.forEach(book => booksGrid.appendChild(createShelfSlot(book)));
+    booksGrid.appendChild(createAddSlot());
+
     if (books.length === 0) {
-      booksGrid.innerHTML = `<p class="placeholder-text" style="grid-column: 1/-1;">Sua estante está vazia. Clique em <strong>+ Adicionar Livro</strong> para começar.</p>`;
-      return;
+      const note = document.createElement('p');
+      note.className = 'shelf-note';
+      note.textContent = 'Sua estante está vazia. Adicione um PDF para começar a ouvir.';
+      booksGrid.appendChild(note);
     }
-
-    books.forEach(book => {
-      const card = document.createElement('div');
-      card.className = 'book-card';
-
-      const currentPage = book.currentPage || 1;
-      const totalPages = book.totalPages || 1;
-      const percent = Math.min(100, Math.round((currentPage / totalPages) * 100));
-
-      const coverHtml = book.cover 
-        ? `<img src="${book.cover}" class="book-card-cover-img" alt="Capa de ${book.title}">`
-        : `<div class="book-card-cover-wrap"><span style="font-size:2.5rem;">📖</span></div>`;
-
-      card.innerHTML = `
-        <div class="book-card-cover-wrap">
-          ${coverHtml}
-        </div>
-        
-        <div class="progress-container">
-          <div class="progress-info">
-            <span>Progresso</span>
-            <span>${percent}%</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: ${percent}%;"></div>
-          </div>
-        </div>
-
-        <div class="book-card-info">
-          <h3 title="${book.title}">${book.title}</h3>
-        </div>
-
-        <div class="book-card-actions">
-          <button type="button" class="btn-delete-book" title="Excluir exemplar">Excluir</button>
-        </div>
-      `;
-
-      card.addEventListener('click', (e) => {
-        if (e.target.classList.contains('btn-delete-book')) return;
-        openBook(book);
-      });
-
-      const delBtn = card.querySelector('.btn-delete-book');
-      delBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteBook(book.id);
-      });
-
-      booksGrid.appendChild(card);
-    });
   };
 }
 
@@ -753,7 +788,7 @@ async function playSentence(index, isRetry = false) {
     if (myToken !== playToken) return;
 
     isPlaying = true;
-    playPauseBtn.textContent = '⏸';
+    setPlayIcon(true);
 
     // Prepara a próxima frase enquanto esta toca (elimina a pausa entre frases)
     const next = sentences[currentIndex + 1];
@@ -767,7 +802,7 @@ async function playSentence(index, isRetry = false) {
     }
     console.error("Falha ao tocar frase:", err);
     isPlaying = false;
-    playPauseBtn.textContent = '▶';
+    setPlayIcon(false);
   }
 }
 
@@ -794,7 +829,7 @@ function pauseAudio() {
   audioPlayer.pause();
   resumable = !!started;
   isPlaying = false;
-  playPauseBtn.textContent = '▶';
+  setPlayIcon(false);
 }
 
 // Parada completa (troca de tela/página): limpa o destaque
@@ -803,7 +838,7 @@ function stopAudio() {
   resumable = false;
   audioPlayer.pause();
   isPlaying = false;
-  playPauseBtn.textContent = '▶';
+  setPlayIcon(false);
   document.querySelectorAll('.sentence.active-sentence').forEach(el => {
     el.classList.remove('active-sentence');
   });
@@ -820,7 +855,7 @@ playPauseBtn.addEventListener('click', (e) => {
     // continua exatamente de onde parou, sem refazer a frase
     resumable = false;
     isPlaying = true;
-    playPauseBtn.textContent = '⏸';
+    setPlayIcon(true);
     audioPlayer.play().catch(() => playSentence(currentIndex));
   } else {
     playSentence(currentIndex >= 0 ? currentIndex : 0);
