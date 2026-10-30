@@ -491,6 +491,27 @@ const AUDIO_CACHE_MAX = 20;
 let playToken = 0;              // evita que cliques rápidos toquem frases fora de ordem
 let resumable = false;          // true quando o áudio foi pausado no meio e pode continuar
 
+// A voz neural soletra palavras em CAIXA ALTA (acha que são siglas).
+// Antes de enviar ao servidor, passamos para minúsculas só para a fala; o texto na tela não muda.
+// Siglas que devem continuar sendo soletradas: acrescente aqui (em maiúsculas).
+const SPELLED_ACRONYMS = new Set(['IBGE', 'CNPJ', 'INSS', 'FGTS', 'HTML', 'HTTP', 'HTTPS']);
+
+function normalizeForSpeech(text) {
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  // Frase inteira em maiúsculas (títulos): converte todas as palavras.
+  // Caso contrário: só palavras com 4+ letras (siglas curtas, como CPF, continuam soletradas).
+  const allCaps = letters.length > 3 && letters === letters.toUpperCase();
+  const pattern = allCaps
+    ? /(?<![\p{L}\p{N}])\p{Lu}+(?![\p{L}\p{N}])/gu
+    : /(?<![\p{L}\p{N}])\p{Lu}{4,}(?![\p{L}\p{N}])/gu;
+
+  return text.replace(pattern, (word) => {
+    if (SPELLED_ACRONYMS.has(word)) return word;
+    if (/^[IVXLCDM]+$/.test(word)) return word; // números romanos (XVIII)
+    return word.toLowerCase();
+  });
+}
+
 function requestAudioUrl(text) {
   const key = `${voiceSelect.value}|${text}`;
   if (audioCache.has(key)) return audioCache.get(key);
@@ -499,7 +520,7 @@ function requestAudioUrl(text) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: text,
+      text: normalizeForSpeech(text),
       voice: voiceSelect.value,
       rate: "+0%" // velocidade é aplicada só no navegador (playbackRate)
     })
