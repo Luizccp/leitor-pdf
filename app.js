@@ -285,8 +285,8 @@ pdfInput.addEventListener('change', async (event) => {
 
       addReq.onsuccess = (e) => {
         bookRecord.id = e.target.result;
-        loadShelf();
-        openBook(bookRecord);
+        pdfInput.value = ''; // permite adicionar o mesmo arquivo de novo
+        showShelfView();     // fica na estante; o livro novo aparece lá para você escolher
       };
     } catch (err) {
       console.error("Erro ao processar PDF:", err);
@@ -382,6 +382,58 @@ btnNextPage.addEventListener('click', (e) => {
   }
 });
 
+// Divisão de frases que respeita abreviações (Dr., p., etc.), iniciais e continuações
+const ABBREVIATIONS = new Set([
+  'dr', 'dra', 'sr', 'sra', 'srta', 'prof', 'profa', 'av', 'cap', 'art', 'p', 'pp',
+  'pág', 'pag', 'vol', 'vols', 'n', 'nº', 'no', 'etc', 'ex', 'obs', 'ltda', 'jr',
+  'ed', 'séc', 'sec', 'v', 'vs', 'exmo', 'exma', 'min', 'gen', 'cel', 'cia', 'eng',
+  'sto', 'sta', 'tel', 'dep', 'fig', 'tab', 'cf', 'ibid', 'op', 'cit', 'aprox',
+  'apr', 'máx', 'mín'
+]);
+// Abreviações que também podem terminar uma frase (quando a próxima começa com maiúscula)
+const ABBREVIATIONS_CAN_END = new Set(['etc', 'ltda', 'cia', 'jr']);
+
+function splitSentences(text) {
+  const result = [];
+  let start = 0;
+  const boundary = /([.!?…]+["'”’)\]»]*)(\s+)/g;
+  let m;
+
+  while ((m = boundary.exec(text)) !== null) {
+    const nextChar = text.charAt(m.index + m[0].length);
+    const core = m[1].replace(/["'”’)\]»]+$/, '');
+    const nextIsLower = /\p{Ll}/u.test(nextChar);
+    const nextIsUpper = /\p{Lu}/u.test(nextChar);
+    let isBoundary = true;
+
+    if (nextIsLower) {
+      // a frase continua (ex.: "etc. e tal", "disse ele" depois de aspas)
+      isBoundary = false;
+    } else if (core === '.') {
+      const before = text.slice(start, m.index);
+      const wm = before.match(/([\p{L}ºª]+)$/u);
+      const word = wm ? wm[1] : '';
+      const lower = word.toLowerCase();
+
+      if (word.length === 1 && /\p{Lu}/u.test(word)) {
+        isBoundary = false; // inicial, como em "J. R. R. Tolkien"
+      } else if (ABBREVIATIONS.has(lower)) {
+        isBoundary = ABBREVIATIONS_CAN_END.has(lower) && nextIsUpper;
+      }
+    }
+
+    if (isBoundary) {
+      const piece = text.slice(start, m.index + m[1].length).trim();
+      if (piece) result.push(piece);
+      start = m.index + m[0].length;
+    }
+  }
+
+  const rest = text.slice(start).trim();
+  if (rest) result.push(rest);
+  return result.length ? result : [text];
+}
+
 // 12. Renderização das Sentenças
 function renderReaderMode(rawText, initialHighlightIndex = 0) {
   textContainer.innerHTML = '';
@@ -393,7 +445,7 @@ function renderReaderMode(rawText, initialHighlightIndex = 0) {
     return;
   }
 
-  const segments = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [normalized];
+  const segments = splitSentences(normalized);
   sentences = [];
 
   segments.forEach((chunk) => {
@@ -434,13 +486,48 @@ function scrollToElementSafely(el) {
 }
 
 // 14. Reprodução de Áudio Neural com Estado Persistente
-async function playSentence(index) {
+const audioCache = new Map();   // chave: voz|texto -> Promise com a URL do áudio
+const AUDIO_CACHE_MAX = 20;
+let playToken = 0;              // evita que cliques rápidos toquem frases fora de ordem
+let resumable = false;          // true quando o áudio foi pausado no meio e pode continuar
+
+function requestAudioUrl(text) {
+  const key = `${voiceSelect.value}|${text}`;
+  if (audioCache.has(key)) return audioCache.get(key);
+
+  const promise = fetch("http://127.0.0.1:8000/synthesize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: text,
+      voice: voiceSelect.value,
+      rate: "+0%" // velocidade é aplicada só no navegador (playbackRate)
+    })
+  })
+    .then(res => {
+      if (!res.ok) throw new Error(`Erro na síntese: ${res.status}`);
+      return res.json();
+    })
+    .then(data => data.audio_url);
+
+  promise.catch(() => audioCache.delete(key)); // não guarda falhas
+  audioCache.set(key, promise);
+
+  if (audioCache.size > AUDIO_CACHE_MAX) {
+    audioCache.delete(audioCache.keys().next().value); // descarta a mais antiga
+  }
+  return promise;
+}
+
+async function playSentence(index, isRetry = false) {
   if (index < 0 || index >= sentences.length) {
     stopAudio();
     return;
   }
 
+  const myToken = ++playToken;
   audioPlayer.pause();
+  resumable = false;
   currentIndex = index;
 
   if (currentBook) {
@@ -458,30 +545,29 @@ async function playSentence(index) {
   item.element.classList.add('active-sentence');
   scrollToElementSafely(item.element);
 
-  const ratePercent = Math.round((currentSpeed - 1.0) * 100);
-  const rateParam = `${ratePercent >= 0 ? '+' : ''}${ratePercent}%`;
-
   try {
-    const res = await fetch("http://127.0.0.1:8000/synthesize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: item.text,
-        voice: voiceSelect.value,
-        rate: rateParam
-      })
-    });
+    const url = await requestAudioUrl(item.text);
+    if (myToken !== playToken) return; // outra frase foi escolhida enquanto esta carregava
 
-    if (!res.ok) throw new Error(`Erro na síntese: ${res.status}`);
-
-    const data = await res.json();
-    audioPlayer.src = data.audio_url;
+    audioPlayer.src = url;
+    audioPlayer.defaultPlaybackRate = currentSpeed;
     audioPlayer.playbackRate = currentSpeed;
     await audioPlayer.play();
+    if (myToken !== playToken) return;
 
     isPlaying = true;
     playPauseBtn.textContent = '⏸';
+
+    // Prepara a próxima frase enquanto esta toca (elimina a pausa entre frases)
+    const next = sentences[currentIndex + 1];
+    if (next) requestAudioUrl(next.text).catch(() => {});
   } catch (err) {
+    if (myToken !== playToken) return;
+    if (!isRetry) {
+      // o arquivo pode ter sido apagado pela limpeza do servidor: pede de novo uma vez
+      audioCache.delete(`${voiceSelect.value}|${item.text}`);
+      return playSentence(index, true);
+    }
     console.error("Falha ao tocar frase:", err);
     isPlaying = false;
     playPauseBtn.textContent = '▶';
@@ -504,7 +590,20 @@ audioPlayer.onended = () => {
   }
 };
 
+// Pausa de verdade: mantém o destaque e a posição dentro da frase
+function pauseAudio() {
+  playToken++; // cancela qualquer frase que ainda esteja carregando
+  const started = audioPlayer.src && !audioPlayer.ended && audioPlayer.currentTime > 0;
+  audioPlayer.pause();
+  resumable = !!started;
+  isPlaying = false;
+  playPauseBtn.textContent = '▶';
+}
+
+// Parada completa (troca de tela/página): limpa o destaque
 function stopAudio() {
+  playToken++;
+  resumable = false;
   audioPlayer.pause();
   isPlaying = false;
   playPauseBtn.textContent = '▶';
@@ -519,7 +618,13 @@ playPauseBtn.addEventListener('click', (e) => {
   e.stopPropagation();
 
   if (isPlaying) {
-    stopAudio();
+    pauseAudio();
+  } else if (resumable) {
+    // continua exatamente de onde parou, sem refazer a frase
+    resumable = false;
+    isPlaying = true;
+    playPauseBtn.textContent = '⏸';
+    audioPlayer.play().catch(() => playSentence(currentIndex));
   } else {
     playSentence(currentIndex >= 0 ? currentIndex : 0);
   }
@@ -542,7 +647,8 @@ speedBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   const currentIdx = speeds.indexOf(currentSpeed);
   currentSpeed = speeds[(currentIdx + 1) % speeds.length];
-  speedBtn.textContent = `${currentSpeed}x`;
+  speedBtn.textContent = `${currentSpeed.toFixed(2).replace(/0$/, '')}x`;
+  audioPlayer.defaultPlaybackRate = currentSpeed;
   audioPlayer.playbackRate = currentSpeed;
 });
 
