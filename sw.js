@@ -1,5 +1,5 @@
 // Cache simples para o app abrir rápido e funcionar offline (os PDFs já ficam no aparelho).
-const CACHE = "leitor-v2";
+const CACHE = "leitor-v3";
 const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.webmanifest",
   "texturas/fosca-horizontal.jpg", "texturas/fosca-vertical.jpg", "texturas/nogueira-armario.jpg",
   "icons/icon-192.png", "icons/icon-512.png"];
