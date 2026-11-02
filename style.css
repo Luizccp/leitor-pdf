@@ -998,3 +998,14 @@ body[data-view="shelf"] .reader-only {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* Aviso discreto (toast) */
+#toast {
+  position: fixed; left: 50%; bottom: 5.5rem; transform: translate(-50%, 12px);
+  max-width: min(92vw, 28rem); padding: .7rem 1.1rem; border-radius: 999px;
+  background: rgba(34, 22, 14, .94); color: #f4ecde; font: 500 .9rem/1.3 "Figtree", system-ui, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); opacity: 0; pointer-events: none; z-index: 1000;
+  transition: opacity .25s, transform .25s;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }

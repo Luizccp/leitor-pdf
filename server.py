@@ -50,6 +50,28 @@ def cleanup_old_audio(max_age=AUDIO_MAX_AGE, force=False):
 # Ao iniciar o servidor, apaga tudo que sobrou da execução anterior
 cleanup_old_audio(max_age=0, force=True)
 
+# Limites simples para o servidor não ser abusado quando estiver aberto por túnel
+MAX_TEXT_CHARS = 2000            # uma frase nunca precisa de mais que isso
+RATE_WINDOW = 60                 # janela de 1 minuto
+RATE_MAX_REQUESTS = 90           # pedidos por minuto, por visitante
+_hits = {}
+
+def client_key(request: Request) -> str:
+    # atrás do túnel o IP real vem nestes cabeçalhos
+    return (request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else "local"))
+
+def too_many_requests(key: str) -> bool:
+    now = time.time()
+    recent = [t for t in _hits.get(key, []) if now - t < RATE_WINDOW]
+    recent.append(now)
+    _hits[key] = recent
+    if len(_hits) > 2000:  # não deixa a tabela crescer sem fim
+        for k in [k for k, v in _hits.items() if not v or now - v[-1] > RATE_WINDOW]:
+            _hits.pop(k, None)
+    return len(recent) > RATE_MAX_REQUESTS
+
 class TTSRequest(BaseModel):
     text: str
     voice: str = "pt-BR-FranciscaNeural"
@@ -59,6 +81,10 @@ class TTSRequest(BaseModel):
 async def synthesize(req: TTSRequest, request: Request):
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="Texto vazio")
+    if len(req.text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=413, detail="Texto muito longo")
+    if too_many_requests(client_key(request)):
+        raise HTTPException(status_code=429, detail="Muitos pedidos. Tente de novo em instantes.")
 
     cleanup_old_audio()
 
@@ -69,8 +95,8 @@ async def synthesize(req: TTSRequest, request: Request):
         communicate = edge_tts.Communicate(req.text, req.voice, rate=req.rate)
         await communicate.save(filepath)
 
-        base_url = str(request.base_url).rstrip('/')
-        return {"audio_url": f"{base_url}/audio/{filename}"}
+        # caminho relativo: o app completa com o endereço do servidor (funciona também atrás de túnel HTTPS)
+        return {"audio_url": f"/audio/{filename}"}
     except Exception as e:
         print(f"Erro TTS: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -44,6 +44,20 @@ const ICON_PAUSE = '<svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden=
 const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9.5 7V5h5v2M7 7l.9 12h8.2L17 7"/></svg>';
 const ICON_PLUS  = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
+function notify(msg) {
+  let box = document.getElementById('toast');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toast';
+    box.setAttribute('role', 'status');
+    document.body.appendChild(box);
+  }
+  box.textContent = msg;
+  box.classList.add('show');
+  clearTimeout(notify._t);
+  notify._t = setTimeout(() => box.classList.remove('show'), 4500);
+}
+
 function setPlayIcon(playing) {
   playPauseBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
 }
@@ -120,12 +134,53 @@ function applyTheme(theme) {
 }
 
 // 3. Configurar Opções de Vozes Neurais
+// Voz do aparelho: usa a leitura em voz alta do próprio celular/navegador (sem servidor, sem internet).
+// As vozes neurais (Francisca, Antonio, Thalita) precisam do servidor local rodando.
+// Link com ?servidor=https://... guarda o endereço do servidor de vozes (ex.: um túnel). ?servidor=padrao volta ao normal.
+(function readServerParam() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('servidor')) return;
+  const val = q.get('servidor');
+  try {
+    if (!val || val === 'padrao') {
+      localStorage.removeItem('app_tts_server');
+    } else {
+      const u = new URL(val);
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+      if (u.protocol === 'https:' || local) localStorage.setItem('app_tts_server', u.origin);
+    }
+  } catch (e) { /* endereço inválido: ignora */ }
+  q.delete('servidor');
+  const rest = q.toString();
+  history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+})();
+const CUSTOM_TTS_SERVER = localStorage.getItem('app_tts_server');
+const TTS_SERVER_URL = (window.TTS_SERVER_URL || CUSTOM_TTS_SERVER || 'http://127.0.0.1:8000').replace(/\/$/, '');
+const DEVICE_VOICE = 'device';
+const canDeviceVoice = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+
+// Vozes neurais precisam do servidor (server.py). Fora do seu computador, se ele não estiver acessível, o app volta sozinho para a voz do aparelho.
+const isLocalHost = location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+
 function setupVoices() {
-  voiceSelect.innerHTML = `
-    <option value="pt-BR-FranciscaNeural" selected>Francisca</option>
-    <option value="pt-BR-AntonioNeural">Antonio</option>
-    <option value="pt-BR-ThalitaNeural">Thalita</option>
-  `;
+  const device = canDeviceVoice ? `<option value="${DEVICE_VOICE}">Voz do aparelho</option>` : '';
+  const tag = (isLocalHost || CUSTOM_TTS_SERVER) ? 'servidor' : 'requer servidor';
+  const neural = `
+    <option value="pt-BR-FranciscaNeural">Francisca (${tag})</option>
+    <option value="pt-BR-AntonioNeural">Antonio (${tag})</option>
+    <option value="pt-BR-ThalitaNeural">Thalita (${tag})</option>`;
+  voiceSelect.innerHTML = (device + neural) || '<option value="">Voz indisponível</option>';
+  // No app instalado (Capacitor) ou sem preferência salva, a voz do aparelho é a padrão
+  const saved = localStorage.getItem('app_voice');
+  const isApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  voiceSelect.value = saved && [...voiceSelect.options].some(o => o.value === saved)
+    ? saved
+    : (canDeviceVoice && (isApp || !isLocalHost) && !CUSTOM_TTS_SERVER ? DEVICE_VOICE : 'pt-BR-FranciscaNeural');
+  if (!voiceSelect.value) voiceSelect.selectedIndex = 0;
+  voiceSelect.addEventListener('change', () => {
+    localStorage.setItem('app_voice', voiceSelect.value);
+    if (isPlaying) playSentence(currentIndex >= 0 ? currentIndex : 0);
+  });
 }
 setupVoices();
 
@@ -723,11 +778,34 @@ function normalizeForSpeech(text) {
   return text.replace(/(?<![\p{L}\p{N}])\p{Lu}{4,}(?![\p{L}\p{N}])/gu, lower);
 }
 
+const usingDeviceVoice = () => voiceSelect.value === DEVICE_VOICE;
+
+// Fala uma frase com a voz do aparelho. Resolve quando termina; rejeita se der erro.
+function speakWithDevice(text, token) {
+  return new Promise((resolve, reject) => {
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const utter = new SpeechSynthesisUtterance(normalizeForSpeech(text));
+    utter.lang = 'pt-BR';
+    const voices = synth.getVoices();
+    const voice = voices.find(v => v.lang === 'pt-BR') || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('pt'));
+    if (voice) utter.voice = voice;
+    utter.rate = currentSpeed;
+    utter.onend = () => resolve(token);
+    utter.onerror = (e) => (e.error === 'canceled' || e.error === 'interrupted') ? resolve(null) : reject(e);
+    synth.speak(utter);
+  });
+}
+
+function stopDeviceVoice() {
+  if (canDeviceVoice) window.speechSynthesis.cancel();
+}
+
 function requestAudioUrl(text) {
   const key = `${voiceSelect.value}|${text}`;
   if (audioCache.has(key)) return audioCache.get(key);
 
-  const promise = fetch("http://127.0.0.1:8000/synthesize", {
+  const promise = fetch(`${TTS_SERVER_URL}/synthesize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -740,7 +818,7 @@ function requestAudioUrl(text) {
       if (!res.ok) throw new Error(`Erro na síntese: ${res.status}`);
       return res.json();
     })
-    .then(data => data.audio_url);
+    .then(data => new URL(data.audio_url, TTS_SERVER_URL + '/').href);
 
   promise.catch(() => audioCache.delete(key)); // não guarda falhas
   audioCache.set(key, promise);
@@ -759,6 +837,7 @@ async function playSentence(index, isRetry = false) {
 
   const myToken = ++playToken;
   audioPlayer.pause();
+  stopDeviceVoice();
   resumable = false;
   currentIndex = index;
 
@@ -776,6 +855,21 @@ async function playSentence(index, isRetry = false) {
 
   item.element.classList.add('active-sentence');
   scrollToElementSafely(item.element);
+
+  if (usingDeviceVoice()) {
+    try {
+      isPlaying = true;
+      setPlayIcon(true);
+      const done = await speakWithDevice(item.text, myToken);
+      if (done === myToken && myToken === playToken) onSentenceEnded();
+    } catch (err) {
+      if (myToken !== playToken) return;
+      console.error("Falha na voz do aparelho:", err);
+      isPlaying = false;
+      setPlayIcon(false);
+    }
+    return;
+  }
 
   try {
     const url = await requestAudioUrl(item.text);
@@ -801,13 +895,19 @@ async function playSentence(index, isRetry = false) {
       return playSentence(index, true);
     }
     console.error("Falha ao tocar frase:", err);
+    if (canDeviceVoice && !usingDeviceVoice()) {
+      // servidor de voz fora do ar: continua com a voz do aparelho em vez de parar
+      voiceSelect.value = DEVICE_VOICE;
+      notify('Servidor de voz indisponível. Usando a voz do aparelho.');
+      return playSentence(index);
+    }
     isPlaying = false;
     setPlayIcon(false);
   }
 }
 
 // Transição Ininterrupta: próxima frase ou próxima página sem pausar
-audioPlayer.onended = () => {
+function onSentenceEnded() {
   if (isPlaying) {
     if (currentIndex + 1 < sentences.length) {
       playSentence(currentIndex + 1);
@@ -820,11 +920,20 @@ audioPlayer.onended = () => {
       }
     }
   }
-};
+}
+audioPlayer.onended = onSentenceEnded;
 
 // Pausa de verdade: mantém o destaque e a posição dentro da frase
 function pauseAudio() {
   playToken++; // cancela qualquer frase que ainda esteja carregando
+  if (usingDeviceVoice()) {
+    // a voz do aparelho não pausa de forma confiável no Android: para e recomeça a frase ao continuar
+    stopDeviceVoice();
+    resumable = false;
+    isPlaying = false;
+    setPlayIcon(false);
+    return;
+  }
   const started = audioPlayer.src && !audioPlayer.ended && audioPlayer.currentTime > 0;
   audioPlayer.pause();
   resumable = !!started;
@@ -837,6 +946,7 @@ function stopAudio() {
   playToken++;
   resumable = false;
   audioPlayer.pause();
+  stopDeviceVoice();
   isPlaying = false;
   setPlayIcon(false);
   document.querySelectorAll('.sentence.active-sentence').forEach(el => {
@@ -882,10 +992,14 @@ speedBtn.addEventListener('click', (e) => {
   speedBtn.textContent = `${currentSpeed.toFixed(2).replace(/0$/, '')}x`;
   audioPlayer.defaultPlaybackRate = currentSpeed;
   audioPlayer.playbackRate = currentSpeed;
+  if (isPlaying && usingDeviceVoice()) playSentence(currentIndex); // a voz do aparelho aplica a velocidade ao recomeçar a frase
 });
 
 // Inicialização
 window.addEventListener('DOMContentLoaded', () => {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   setupThemes();
   initDB();
 });
