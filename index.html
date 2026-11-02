@@ -19,45 +19,26 @@
 </head>
 <body data-theme="paper" data-view="shelf">
 
-  <!-- Barra Superior -->
+  <!-- Barra superior: limpa, muda conforme a tela -->
   <header class="top-bar">
-    <nav class="top-bar-left" aria-label="Seções">
-      <button type="button" id="btnShelfView" class="nav-btn active-tab">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="4" height="13" rx="0.8"/><rect x="9.5" y="4" width="4" height="15" rx="0.8"/><path d="M15.4 7.4l3.5-.9 2.5 11.9-3.5.9z"/><path d="M3 21.5h18"/></svg>
-        <span>Estante</span>
-      </button>
-      <button type="button" id="btnReaderView" class="nav-btn">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10.5 5.2 8.2 4.5 5 4.5v13c3.2 0 5.5.7 7 2 1.5-1.3 3.8-2 7-2v-13c-3.2 0-5.5.7-7 2z"/><path d="M12 6.5v13"/></svg>
-        <span>Leitura</span>
-      </button>
-    </nav>
-
-    <div class="book-info-header">
-      <span class="book-title" id="bookTitle">Nenhum livro aberto</span>
-      <span id="pageIndicator" class="page-indicator" style="display: none;">Pág. 1 / 1</span>
+    <div class="tb-left">
+      <h1 class="tb-title" id="viewTitle">Estante</h1>
+      <div class="book-chip reader-only" title="Livro aberto">
+        <span class="book-title" id="bookTitle">Nenhum livro aberto</span>
+        <span class="chip-sep" aria-hidden="true"></span>
+        <span id="pageIndicator" class="page-indicator" style="display: none;">Pág. 1 / 1</span>
+      </div>
     </div>
 
-    <div class="top-bar-right">
-      <!-- Seletor de Tema -->
-      <div class="theme-selector" role="group" aria-label="Tema">
-        <button type="button" class="theme-btn theme-paper active" data-set-theme="paper" title="Claro" aria-label="Tema claro"></button>
-        <button type="button" class="theme-btn theme-sepia" data-set-theme="sepia" title="Sépia" aria-label="Tema sépia"></button>
-        <button type="button" class="theme-btn theme-dark" data-set-theme="dark" title="Noturno" aria-label="Tema noturno"></button>
-      </div>
-
-      <!-- Ajuste de Tamanho da Letra -->
-      <div class="font-size-controls reader-only">
-        <button type="button" id="btnFontDec" class="font-btn" title="Diminuir fonte" aria-label="Diminuir fonte"><span class="font-a-small">A</span></button>
-        <button type="button" id="btnFontInc" class="font-btn" title="Aumentar fonte" aria-label="Aumentar fonte"><span class="font-a-big">A</span></button>
-      </div>
-
-      <select id="voiceSelect" class="voice-picker reader-only" aria-label="Voz"></select>
-
-      <label class="btn-upload">
+    <div class="tb-right">
+      <label class="btn-upload shelf-only">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         <span>Adicionar PDF</span>
         <input type="file" id="pdfInput" accept="application/pdf" hidden>
       </label>
+      <button type="button" id="btnSettings" class="icon-btn reader-only" title="Ajustes de leitura" aria-label="Ajustes de leitura">
+        <span class="aa" aria-hidden="true"><small>A</small>A</span>
+      </button>
     </div>
   </header>
 
@@ -78,8 +59,12 @@
   <!-- Visão 2: Área de Leitura Fluida por Página -->
   <main id="readerSection" class="reading-area" style="display: none;">
     <div class="reader-page-card">
+      <div class="page-head" aria-hidden="true">
+        <small id="pageHeadBook"></small>
+        <b id="pageHeadNum"></b>
+      </div>
       <div id="textContainer" class="book-content">
-        <p class="placeholder-text">Selecione um livro na estante ou adicione um novo PDF acima.</p>
+        <p class="placeholder-text">Selecione um livro na estante ou adicione um novo PDF.</p>
       </div>
 
       <!-- Navegação de Páginas -->
@@ -97,21 +82,103 @@
     </div>
   </main>
 
-  <!-- Barra Flutuante de Áudio (Modo Leitor) -->
+  <!-- Visão 3: Perfil (progresso, destaques e anotações) -->
+  <section id="profileSection" class="profile-area" style="display: none;">
+    <div class="profile-inner">
+      <div class="chips" role="tablist" aria-label="Perfil">
+        <button type="button" class="chip active" data-ptab="progress" role="tab">Progresso</button>
+        <button type="button" class="chip" data-ptab="highlights" role="tab">Destaques</button>
+        <button type="button" class="chip" data-ptab="notes" role="tab">Anotações</button>
+      </div>
+      <div id="profileList" class="profile-list"></div>
+    </div>
+  </section>
+
+  <!-- Botões de áudio (modo leitura): redondos e discretos -->
   <footer id="playerBar" class="player-bar" style="display: none;">
     <div class="player-controls">
       <button type="button" id="prevBtn" class="control-btn" title="Frase anterior" aria-label="Frase anterior">
-        <svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 5v14" class="stroke-only"/><path d="M19 5.8v12.4L9.5 12z"/></svg>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg>
       </button>
-      <button type="button" id="playPauseBtn" class="control-btn play-btn" title="Reproduzir/Pausar" aria-label="Reproduzir ou pausar">
+      <button type="button" id="playPauseBtn" class="control-btn play-btn" title="Ouvir ou pausar" aria-label="Ouvir ou pausar">
         <svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
       </button>
       <button type="button" id="nextBtn" class="control-btn" title="Próxima frase" aria-label="Próxima frase">
-        <svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 5v14" class="stroke-only"/><path d="M5 5.8v12.4L14.5 12z"/></svg>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>
       </button>
-      <button type="button" id="speedBtn" class="control-btn speed-btn" title="Velocidade">1.0x</button>
     </div>
   </footer>
+
+  <!-- Barra de baixo -->
+  <nav class="tabbar" aria-label="Seções">
+    <button type="button" id="btnShelfView" class="tab active-tab">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="4" height="13" rx="0.8"/><rect x="9.5" y="4" width="4" height="15" rx="0.8"/><path d="M15.4 7.4l3.5-.9 2.5 11.9-3.5.9z"/><path d="M3 21.5h18"/></svg>
+      <span>Estante</span>
+    </button>
+    <button type="button" id="btnReaderView" class="tab">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10.5 5.2 8.2 4.5 5 4.5v13c3.2 0 5.5.7 7 2 1.5-1.3 3.8-2 7-2v-13c-3.2 0-5.5.7-7 2z"/><path d="M12 6.5v13"/></svg>
+      <span>Leitura</span>
+    </button>
+    <button type="button" id="btnProfileView" class="tab">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.7-3.6 3.5-5.6 7-5.6s6.3 2 7 5.6"/></svg>
+      <span>Perfil</span>
+    </button>
+  </nav>
+
+  <!-- Ajustes de leitura (o "Aa") -->
+  <div id="sheetBackdrop" class="sheet-backdrop"></div>
+  <div id="settingsSheet" class="sheet" role="dialog" aria-label="Ajustes de leitura" aria-hidden="true">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Ajustes de leitura</div>
+
+    <div class="set-row">
+      <span class="set-label">Tema</span>
+      <div class="theme-selector" role="group" aria-label="Tema">
+        <button type="button" class="theme-btn theme-paper active" data-set-theme="paper" title="Claro" aria-label="Tema claro"></button>
+        <button type="button" class="theme-btn theme-sepia" data-set-theme="sepia" title="Sépia" aria-label="Tema sépia"></button>
+        <button type="button" class="theme-btn theme-dark" data-set-theme="dark" title="Noturno" aria-label="Tema noturno"></button>
+      </div>
+    </div>
+
+    <div class="set-row">
+      <span class="set-label">Letra</span>
+      <div class="font-size-controls">
+        <button type="button" id="btnFontDec" class="font-btn" title="Diminuir fonte" aria-label="Diminuir fonte"><span class="font-a-small">A</span></button>
+        <button type="button" id="btnFontInc" class="font-btn" title="Aumentar fonte" aria-label="Aumentar fonte"><span class="font-a-big">A</span></button>
+      </div>
+    </div>
+
+    <div class="set-row">
+      <span class="set-label">Voz</span>
+      <select id="voiceSelect" class="voice-picker" aria-label="Voz"></select>
+    </div>
+
+    <div class="set-row">
+      <span class="set-label">Velocidade</span>
+      <button type="button" id="speedBtn" class="speed-btn" title="Velocidade da leitura">1.0x</button>
+    </div>
+  </div>
+
+  <!-- Ao tocar numa frase: destacar, copiar, compartilhar, anotar, ouvir daqui -->
+  <div id="actionSheet" class="sheet action-sheet" role="dialog" aria-label="Ações da frase" aria-hidden="true">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title" id="asTitle">Pág. 1</div>
+    <div class="sheet-sub">Para destacar, toque em uma cor</div>
+    <div class="swatches" id="swatches"></div>
+    <div class="act-grid" id="actGrid">
+      <button type="button" data-act="copy"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg><span>Copiar</span></button>
+      <button type="button" data-act="share"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="12" r="2.2"/><circle cx="17.5" cy="6.5" r="2.2"/><circle cx="17.5" cy="17.5" r="2.2"/><path d="M8.4 10.9l7.2-3.3M8.4 13.1l7.2 3.3"/></svg><span>Compartilhar</span></button>
+      <button type="button" data-act="listen"><svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg><span>Ouvir daqui</span></button>
+      <button type="button" data-act="note"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19l1-4L16.5 4.5a2 2 0 0 1 3 3L9 18z"/><path d="M5 19l4-1"/></svg><span>Anotação</span></button>
+    </div>
+    <div class="note-box" id="noteBox" hidden>
+      <textarea id="noteText" rows="3" placeholder="Escreva sua anotação"></textarea>
+      <div class="note-actions">
+        <button type="button" id="noteDelete" class="ghost">Apagar</button>
+        <button type="button" id="noteSave" class="solid">Salvar</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

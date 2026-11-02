@@ -17,6 +17,7 @@ const audioPlayer = new Audio();
 // Elementos da Interface
 const btnShelfView = document.getElementById('btnShelfView');
 const btnReaderView = document.getElementById('btnReaderView');
+const btnProfileView = document.getElementById('btnProfileView');
 const shelfSection = document.getElementById('shelfSection');
 const readerSection = document.getElementById('readerSection');
 const playerBar = document.getElementById('playerBar');
@@ -44,7 +45,7 @@ const ICON_PAUSE = '<svg class="icon icon-fill" viewBox="0 0 24 24" aria-hidden=
 const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9.5 7V5h5v2M7 7l.9 12h8.2L17 7"/></svg>';
 const ICON_PLUS  = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
-function notify(msg) {
+function notify(msg, ms = 2600) {
   let box = document.getElementById('toast');
   if (!box) {
     box = document.createElement('div');
@@ -55,10 +56,11 @@ function notify(msg) {
   box.textContent = msg;
   box.classList.add('show');
   clearTimeout(notify._t);
-  notify._t = setTimeout(() => box.classList.remove('show'), 4500);
+  notify._t = setTimeout(() => box.classList.remove('show'), ms);
 }
 
 function setPlayIcon(playing) {
+  document.body.classList.toggle('playing', !!playing);
   playPauseBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
 }
 
@@ -184,27 +186,36 @@ function setupVoices() {
 }
 setupVoices();
 
-// 4. Alternância de Telas
+// 4. Alternância de Telas (Estante, Leitura e Perfil)
+function setView(view) {
+  document.body.dataset.view = view;
+  shelfSection.style.display = view === 'shelf' ? 'block' : 'none';
+  readerSection.style.display = view === 'reader' ? 'flex' : 'none';
+  profileSection.style.display = view === 'profile' ? 'block' : 'none';
+  playerBar.style.display = view === 'reader' ? 'flex' : 'none';
+  btnShelfView.classList.toggle('active-tab', view === 'shelf');
+  btnReaderView.classList.toggle('active-tab', view === 'reader');
+  btnProfileView.classList.toggle('active-tab', view === 'profile');
+  viewTitle.textContent = view === 'profile' ? 'Meu perfil' : 'Estante';
+  closeSheets();
+}
+
 function showShelfView() {
-  document.body.dataset.view = 'shelf';
-  shelfSection.style.display = 'block';
-  readerSection.style.display = 'none';
-  playerBar.style.display = 'none';
+  setView('shelf');
   pageIndicator.style.display = 'none';
-  btnShelfView.classList.add('active-tab');
-  btnReaderView.classList.remove('active-tab');
   stopAudio();
   loadShelf();
 }
 
 function showReaderView() {
-  document.body.dataset.view = 'reader';
-  shelfSection.style.display = 'none';
-  readerSection.style.display = 'flex';
-  playerBar.style.display = 'flex';
+  setView('reader');
   if (currentBook) pageIndicator.style.display = 'inline-block';
-  btnShelfView.classList.remove('active-tab');
-  btnReaderView.classList.add('active-tab');
+}
+
+function showProfileView() {
+  setView('profile');
+  stopAudio();
+  renderProfile();
 }
 
 btnShelfView.addEventListener('click', (e) => {
@@ -214,7 +225,12 @@ btnShelfView.addEventListener('click', (e) => {
 
 btnReaderView.addEventListener('click', (e) => {
   e.preventDefault();
-  showReaderView();
+  if (document.body.dataset.view !== 'reader') showReaderView();
+});
+
+btnProfileView.addEventListener('click', (e) => {
+  e.preventDefault();
+  showProfileView();
 });
 
 // 5. Carregar Livros da Estante com Capa e Progresso
@@ -581,6 +597,7 @@ async function loadPage(pageNum, startSentenceIndex = 0, autoPlay = false) {
     audioPlayer.pause();
   }
 
+  const prevPage = currentPageNumber;
   currentPageNumber = pageNum;
   currentBook.currentPage = pageNum;
   currentBook.currentSentence = startSentenceIndex;
@@ -588,6 +605,9 @@ async function loadPage(pageNum, startSentenceIndex = 0, autoPlay = false) {
   saveProgress();
 
   const total = currentLoadedPdf.numPages;
+  pageHeadBook.textContent = currentBook.title;
+  pageHeadNum.textContent = pageNum;
+  if (pageNum !== prevPage) turnPage(pageNum > prevPage ? 'next' : 'prev');
   pageIndicator.textContent = `Pág. ${pageNum} / ${total}`;
   pageIndicator.style.display = 'inline-block';
 
@@ -715,13 +735,15 @@ function renderReaderMode(rawText, initialHighlightIndex = 0) {
 
       span.addEventListener('click', (e) => {
         e.preventDefault();
-        playSentence(itemIndex);
+        openActionSheet(itemIndex);
       });
 
       textContainer.appendChild(span);
       sentences.push({ text: textPart, element: span });
     }
   });
+
+  sentences.forEach((_, i) => paintMark(i));
 
   currentIndex = initialHighlightIndex < sentences.length ? initialHighlightIndex : 0;
   if (sentences.length > 0 && sentences[currentIndex]) {
@@ -993,6 +1015,273 @@ speedBtn.addEventListener('click', (e) => {
   audioPlayer.defaultPlaybackRate = currentSpeed;
   audioPlayer.playbackRate = currentSpeed;
   if (isPlaying && usingDeviceVoice()) playSentence(currentIndex); // a voz do aparelho aplica a velocidade ao recomeçar a frase
+});
+
+// ============================================================
+// Perfil, painéis de baixo, destaques e anotações
+// ============================================================
+const profileSection = document.getElementById('profileSection');
+const profileList = document.getElementById('profileList');
+const viewTitle = document.getElementById('viewTitle');
+const btnSettings = document.getElementById('btnSettings');
+const settingsSheet = document.getElementById('settingsSheet');
+const actionSheet = document.getElementById('actionSheet');
+const sheetBackdrop = document.getElementById('sheetBackdrop');
+const pageHeadBook = document.getElementById('pageHeadBook');
+const pageHeadNum = document.getElementById('pageHeadNum');
+const asTitle = document.getElementById('asTitle');
+const swatchesBox = document.getElementById('swatches');
+const actGrid = document.getElementById('actGrid');
+const noteBox = document.getElementById('noteBox');
+const noteText = document.getElementById('noteText');
+
+// Cores de destaque (as mesmas no claro, sépia e noturno; o CSS ajusta a força)
+const HL_COLORS = ['#f6b26b', '#e57373', '#81c784', '#64b5f6', '#4dd0e1', '#f4e04d', '#ffcc80', '#f48fb1'];
+let selectedIdx = -1;
+
+// Painéis que sobem de baixo
+function hideSheets() {
+  [settingsSheet, actionSheet].forEach((sh) => {
+    sh.classList.remove('show');
+    sh.setAttribute('aria-hidden', 'true');
+  });
+  sheetBackdrop.classList.remove('show');
+}
+
+function openSheet(sheet, clearBackdrop) {
+  hideSheets();
+  sheet.classList.add('show');
+  sheet.setAttribute('aria-hidden', 'false');
+  sheetBackdrop.classList.toggle('clear', !!clearBackdrop);
+  sheetBackdrop.classList.add('show');
+}
+
+function closeSheets() {
+  hideSheets();
+  if (selectedIdx >= 0 && sentences[selectedIdx]) sentences[selectedIdx].element.classList.remove('selected');
+  selectedIdx = -1;
+}
+
+sheetBackdrop.addEventListener('click', closeSheets);
+btnSettings.addEventListener('click', () => openSheet(settingsSheet, false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
+
+// Marcações do leitor: ficam gravadas no livro (no aparelho)
+function markKey(idx) { return currentPageNumber + ':' + idx; }
+function getMark(idx) { return (currentBook && currentBook.marks && currentBook.marks[markKey(idx)]) || null; }
+
+function paintMark(idx) {
+  const item = sentences[idx];
+  if (!item) return;
+  const el = item.element;
+  const m = getMark(idx);
+  if (m && m.c) { el.dataset.hl = '1'; el.style.setProperty('--hlc', m.c); }
+  else { delete el.dataset.hl; el.style.removeProperty('--hlc'); }
+  if (m && m.n) el.dataset.note = '1'; else delete el.dataset.note;
+}
+
+function updateMark(idx, patch) {
+  if (!currentBook || !sentences[idx]) return;
+  currentBook.marks = currentBook.marks || {};
+  const k = markKey(idx);
+  const cur = Object.assign({}, currentBook.marks[k] || {}, patch, { p: currentPageNumber, i: idx, t: sentences[idx].text });
+  if (!cur.c) delete cur.c;
+  if (!cur.n) delete cur.n;
+  if (!cur.c && !cur.n) delete currentBook.marks[k]; else currentBook.marks[k] = cur;
+  paintMark(idx);
+  saveProgress();
+}
+
+function renderSwatches() {
+  const m = getMark(selectedIdx);
+  swatchesBox.innerHTML = '';
+  HL_COLORS.forEach((c) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch' + (m && m.c === c ? ' on' : '');
+    b.style.setProperty('--c', c);
+    b.setAttribute('aria-label', 'Destacar com esta cor');
+    b.addEventListener('click', () => {
+      const on = m && m.c === c;
+      updateMark(selectedIdx, { c: on ? '' : c });
+      renderSwatches();
+    });
+    swatchesBox.appendChild(b);
+  });
+}
+
+function openActionSheet(idx) {
+  if (!sentences[idx] || !currentBook) return;
+  closeSheets();
+  selectedIdx = idx;
+  const el = sentences[idx].element;
+  el.classList.add('selected');
+  asTitle.textContent = `${currentBook.title} · pág. ${currentPageNumber}`;
+  renderSwatches();
+  noteBox.hidden = true;
+  actGrid.hidden = false;
+  openSheet(actionSheet, true);
+  // leva a frase para o alto da tela, para o painel não cobrir
+  const cr = readerSection.getBoundingClientRect();
+  const er = el.getBoundingClientRect();
+  readerSection.scrollBy({ top: er.top - cr.top - cr.height * 0.18, behavior: 'smooth' });
+}
+
+function quoteText(idx) {
+  return `“${sentences[idx].text}”\n— ${currentBook.title}, pág. ${currentPageNumber}`;
+}
+
+async function copyText(txt) {
+  try {
+    await navigator.clipboard.writeText(txt);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e2) { /* sem permissão */ }
+    ta.remove();
+  }
+}
+
+actGrid.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn || selectedIdx < 0) return;
+  const idx = selectedIdx;
+  const act = btn.dataset.act;
+  if (act === 'copy') {
+    await copyText(quoteText(idx));
+    closeSheets();
+    notify('Copiado');
+  } else if (act === 'share') {
+    const txt = quoteText(idx);
+    if (navigator.share) {
+      try { await navigator.share({ text: txt }); } catch (err) { /* cancelou */ }
+    } else {
+      await copyText(txt);
+      notify('Copiado (este aparelho não tem compartilhar)');
+    }
+    closeSheets();
+  } else if (act === 'listen') {
+    closeSheets();
+    playSentence(idx);
+  } else if (act === 'note') {
+    const m = getMark(idx);
+    noteText.value = (m && m.n) || '';
+    actGrid.hidden = true;
+    noteBox.hidden = false;
+    noteText.focus();
+  }
+});
+
+document.getElementById('noteSave').addEventListener('click', () => {
+  if (selectedIdx < 0) return;
+  updateMark(selectedIdx, { n: noteText.value.trim() });
+  closeSheets();
+  notify('Anotação salva');
+});
+
+document.getElementById('noteDelete').addEventListener('click', () => {
+  if (selectedIdx < 0) return;
+  updateMark(selectedIdx, { n: '' });
+  closeSheets();
+});
+
+// Virar a página como folha (animação) e deslizar o dedo para trocar
+function turnPage(dir) {
+  const card = document.querySelector('.reader-page-card');
+  if (!card) return;
+  card.classList.remove('turn-next', 'turn-prev');
+  void card.offsetWidth; // reinicia a animação
+  card.classList.add(dir === 'next' ? 'turn-next' : 'turn-prev');
+}
+
+(function setupSwipe() {
+  let sx = 0, sy = 0, st = 0;
+  readerSection.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    sx = t.clientX; sy = t.clientY; st = Date.now();
+  }, { passive: true });
+  readerSection.addEventListener('touchend', (e) => {
+    if (!currentLoadedPdf) return;
+    if (window.getSelection && String(window.getSelection())) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 80 && Math.abs(dy) < 45 && Date.now() - st < 700) {
+      (dx < 0 ? btnNextPage : btnPrevPage).click();
+    }
+  }, { passive: true });
+})();
+
+// Perfil: progresso, destaques e anotações de todos os livros
+let profileTab = 'progress';
+
+function allBooks(cb) {
+  if (!db) return cb([]);
+  const req = db.transaction(['books'], 'readonly').objectStore('books').getAll();
+  req.onsuccess = () => cb(req.result || []);
+  req.onerror = () => cb([]);
+}
+
+function openAtMark(book, m) {
+  book.currentPage = m.p;
+  book.currentSentence = m.i;
+  openBook(book);
+}
+
+function renderProfile() {
+  document.querySelectorAll('.chip[data-ptab]').forEach((c) => c.classList.toggle('active', c.dataset.ptab === profileTab));
+  allBooks((books) => {
+    profileList.innerHTML = '';
+    const add = (html, onClick, cls) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'p-card' + (cls ? ' ' + cls : '');
+      b.innerHTML = html;
+      b.addEventListener('click', onClick);
+      profileList.appendChild(b);
+      return b;
+    };
+
+    if (profileTab === 'progress') {
+      books.forEach((book) => {
+        const cur = book.currentPage || 1;
+        const tot = book.totalPages || 1;
+        const isNew = cur <= 1 && !book.currentSentence;
+        const pct = isNew ? 0 : Math.min(100, Math.round((cur / tot) * 100));
+        add(`<b>${escapeHtml(book.title)}</b><small>${isNew ? 'Ainda não lido' : `Pág. ${cur} de ${tot}`}</small>
+             <div class="p-bar"><span><i style="width:${pct}%"></i></span><em>${pct}%</em></div>`, () => openBook(book));
+      });
+      if (!books.length) profileList.innerHTML = '<p class="p-empty">Adicione um PDF na estante para acompanhar seu progresso.</p>';
+      return;
+    }
+
+    let count = 0;
+    books.forEach((book) => {
+      const marks = Object.values(book.marks || {}).sort((a, b) => (a.p - b.p) || (a.i - b.i));
+      marks.forEach((m) => {
+        if (profileTab === 'highlights' && !m.c) return;
+        if (profileTab === 'notes' && !m.n) return;
+        count++;
+        const body = profileTab === 'notes'
+          ? `<q>${escapeHtml(m.n)}</q><small>“${escapeHtml(m.t.length > 110 ? m.t.slice(0, 110) + '…' : m.t)}”</small>`
+          : `<q>${escapeHtml(m.t)}</q>`;
+        const card = add(`${body}<small>${escapeHtml(book.title)} · pág. ${m.p}</small>`, () => openAtMark(book, m), profileTab === 'highlights' ? 'hl' : '');
+        if (m.c) card.style.setProperty('--c', m.c);
+      });
+    });
+    if (!count) {
+      profileList.innerHTML = profileTab === 'highlights'
+        ? '<p class="p-empty">Toque numa frase durante a leitura e escolha uma cor para destacar.</p>'
+        : '<p class="p-empty">Toque numa frase durante a leitura e escolha “Anotação”.</p>';
+    }
+  });
+}
+
+document.querySelectorAll('.chip[data-ptab]').forEach((c) => {
+  c.addEventListener('click', () => { profileTab = c.dataset.ptab; renderProfile(); });
 });
 
 // Inicialização
