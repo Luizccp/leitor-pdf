@@ -159,6 +159,7 @@ function applyTheme(theme) {
 const CUSTOM_TTS_SERVER = localStorage.getItem('app_tts_server');
 const TTS_SERVER_URL = (window.TTS_SERVER_URL || CUSTOM_TTS_SERVER || 'http://127.0.0.1:8000').replace(/\/$/, '');
 const DEVICE_VOICE = 'device';
+const CLONED_VOICE = 'voicestudio'; // voz clonada, gerada pelo VoiceStudio no PC (mais lenta: prepara frases à frente)
 const canDeviceVoice = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
 
 // Vozes neurais precisam do servidor (server.py). Fora do seu computador, se ele não estiver acessível, o app volta sozinho para a voz do aparelho.
@@ -170,7 +171,8 @@ function setupVoices() {
   const neural = `
     <option value="pt-BR-FranciscaNeural">Francisca (${tag})</option>
     <option value="pt-BR-AntonioNeural">Antonio (${tag})</option>
-    <option value="pt-BR-ThalitaNeural">Thalita (${tag})</option>`;
+    <option value="pt-BR-ThalitaNeural">Thalita (${tag})</option>
+    <option value="${CLONED_VOICE}">Minha voz (${tag})</option>`;
   voiceSelect.innerHTML = (device + neural) || '<option value="">Voz indisponível</option>';
   // No app instalado (Capacitor) ou sem preferência salva, a voz do aparelho é a padrão
   const saved = localStorage.getItem('app_voice');
@@ -893,8 +895,12 @@ async function playSentence(index, isRetry = false) {
     return;
   }
 
+  // A voz clonada demora mais para gerar: avisa se a frase não ficar pronta logo
+  const cloned = voiceSelect.value === CLONED_VOICE;
+  const slowTimer = cloned ? setTimeout(() => notify('Preparando a voz…', 8000), 1500) : null;
   try {
     const url = await requestAudioUrl(item.text);
+    if (slowTimer) clearTimeout(slowTimer);
     if (myToken !== playToken) return; // outra frase foi escolhida enquanto esta carregava
 
     audioPlayer.src = url;
@@ -906,10 +912,15 @@ async function playSentence(index, isRetry = false) {
     isPlaying = true;
     setPlayIcon(true);
 
-    // Prepara a próxima frase enquanto esta toca (elimina a pausa entre frases)
-    const next = sentences[currentIndex + 1];
-    if (next) requestAudioUrl(next.text).catch(() => {});
+    // Prepara as próximas frases enquanto esta toca (elimina a pausa entre frases).
+    // A voz clonada gera mais devagar que a fala, então prepara algumas a mais.
+    const ahead = cloned ? 4 : 1;
+    for (let k = 1; k <= ahead; k++) {
+      const nx = sentences[currentIndex + k];
+      if (nx) requestAudioUrl(nx.text).catch(() => {});
+    }
   } catch (err) {
+    if (slowTimer) clearTimeout(slowTimer);
     if (myToken !== playToken) return;
     if (!isRetry) {
       // o arquivo pode ter sido apagado pela limpeza do servidor: pede de novo uma vez

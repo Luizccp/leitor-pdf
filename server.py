@@ -1,5 +1,8 @@
 import os
 import re
+import json
+import asyncio
+import urllib.request
 import time
 import uuid
 import tempfile
@@ -72,6 +75,41 @@ def too_many_requests(key: str) -> bool:
             _hits.pop(k, None)
     return len(recent) > RATE_MAX_REQUESTS
 
+# ---- Minha voz (VoiceStudio, no próprio PC) ----
+# O VoiceStudio roda local e expõe uma API compatível com a da OpenAI. O servidor pede o áudio a ele,
+# uma frase por vez (a placa de vídeo é pequena e trava se receber vários pedidos juntos).
+VS_URL = os.environ.get("VOICESTUDIO_URL", "http://127.0.0.1:3900")
+VS_VOICE = os.environ.get("VOICESTUDIO_VOICE", "8919b44a")        # id do perfil de voz clonada
+VS_MODEL = os.environ.get("VOICESTUDIO_MODEL", "moss-tts-nano")    # motor rápido o bastante para ler
+VS_VOICE_ID = "voicestudio"       # nome que o app usa na lista de vozes
+VS_MAX_WAITING = 8                # fila máxima de frases esperando a vez
+_vs_lock = None
+_vs_waiting = 0
+
+def _vs_request(text: str) -> bytes:
+    body = json.dumps({"model": VS_MODEL, "input": text, "voice": VS_VOICE, "response_format": "mp3"}).encode("utf-8")
+    r = urllib.request.Request(VS_URL + "/v1/audio/speech", data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(r, timeout=300) as resp:
+        return resp.read()
+
+async def synthesize_voicestudio(text: str, filepath: str) -> None:
+    global _vs_lock, _vs_waiting
+    if _vs_lock is None:
+        _vs_lock = asyncio.Lock()
+    if _vs_waiting >= VS_MAX_WAITING:
+        raise HTTPException(status_code=429, detail="Fila da voz cheia. Tente de novo em instantes.")
+    _vs_waiting += 1
+    try:
+        async with _vs_lock:
+            data = await asyncio.to_thread(_vs_request, text)
+    except Exception as e:
+        print(f"Erro VoiceStudio: {e}")
+        raise HTTPException(status_code=503, detail="VoiceStudio indisponível. Abra o programa no PC.")
+    finally:
+        _vs_waiting -= 1
+    with open(filepath, "wb") as f:
+        f.write(data)
+
 class TTSRequest(BaseModel):
     text: str
     voice: str = "pt-BR-FranciscaNeural"
@@ -90,6 +128,10 @@ async def synthesize(req: TTSRequest, request: Request):
 
     filename = f"{uuid.uuid4().hex}.mp3"
     filepath = os.path.join(AUDIO_DIR, filename)
+
+    if req.voice == VS_VOICE_ID:
+        await synthesize_voicestudio(req.text, filepath)
+        return {"audio_url": f"/audio/{filename}"}
 
     try:
         communicate = edge_tts.Communicate(req.text, req.voice, rate=req.rate)
