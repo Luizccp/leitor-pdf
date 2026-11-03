@@ -1393,3 +1393,23 @@ body.playing .sentence.active-sentence {
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 [hidden] { display: none !important; }
+
+/* Computador: painéis mais largos e mais confortáveis */
+@media (min-width: 900px) {
+  .sheet {
+    width: min(100%, 860px);
+    padding: 14px 40px calc(28px + env(safe-area-inset-bottom));
+    border-radius: 24px 24px 0 0;
+  }
+  .sheet-title { font-size: 1.15rem; }
+  .sheet-sub { font-size: 0.9rem; }
+  .set-row { min-height: 74px; }
+  .set-label { font-size: 1.05rem; }
+  .voice-picker { max-width: 420px; min-width: 260px; height: 44px; font-size: 1rem; }
+  .speed-btn, .font-btn { height: 44px; }
+  .font-btn { width: 72px; }
+  .theme-btn { width: 40px; height: 40px; }
+  .swatch { max-width: 52px; }
+  .act-grid { grid-template-columns: repeat(4, 1fr); }
+  .act-grid button { height: 58px; font-size: 1rem; }
+}
