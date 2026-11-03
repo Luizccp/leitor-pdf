@@ -171,8 +171,9 @@ function setupVoices() {
   const neural = `
     <option value="pt-BR-FranciscaNeural">Francisca (${tag})</option>
     <option value="pt-BR-AntonioNeural">Antonio (${tag})</option>
-    <option value="pt-BR-ThalitaNeural">Thalita (${tag})</option>
-    <option value="${CLONED_VOICE}">Minha voz (${tag})</option>`;
+    <option value="pt-BR-ThalitaNeural">Thalita (${tag})</option>`;
+  // "Minha voz" (clone do VoiceStudio) está desligada: a qualidade em português não ficou boa. O servidor ainda aceita 'voicestudio'.
+  // Para voltar: acrescente aqui <option value="${CLONED_VOICE}">Minha voz (${tag})</option>
   voiceSelect.innerHTML = (device + neural) || '<option value="">Voz indisponível</option>';
   // No app instalado (Capacitor) ou sem preferência salva, a voz do aparelho é a padrão
   const saved = localStorage.getItem('app_voice');
